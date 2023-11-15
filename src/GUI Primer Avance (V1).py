@@ -61,6 +61,9 @@ class VentanaPrincipal(tk.Tk):
         label_izquierda.image = imagen_izquierda
         label_izquierda.place(x=130, rely=0.5, anchor="w")  # Coloca en el lado izquierdo de la ventana
 
+        # Configurar vinculación de la tecla "Enter"
+        self.bind("<Return>", lambda event=None: self.obtener_datos())
+
 
     def obtener_datos(self):
         nombre = self.texto_name.get()
