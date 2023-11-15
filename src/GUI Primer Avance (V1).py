@@ -44,19 +44,19 @@ class VentanaPrincipal(tk.Tk):
         boton_ap.place(x=560, y=500)
 
         # Imagen en la parte superior derecha
-        imagen_superior_derecha = tk.PhotoImage(file=r"C:\Users\fabia\Pictures\logo.png")  # Cambia la ruta según tu ubicación
+        imagen_superior_derecha = tk.PhotoImage(file=r"C:\Users\fabia\Pictures\Screenshots\Logo Camino.png")  # Cambia la ruta según tu ubicación
         label_superior_derecha = tk.Label(self, image=imagen_superior_derecha, bg="lightsteelblue4")
         label_superior_derecha.image = imagen_superior_derecha  # Referencia para evitar que la imagen sea eliminada por el recolector de basura
         label_superior_derecha.place(relx=1, rely=0, anchor="ne")  # Utiliza relx y rely para posicionar en relación al tamaño de la ventana
 
         # Imagen en la parte inferior izquierda
-        imagen_inferior_izquierda = tk.PhotoImage(file=r'C:\Users\fabia\Downloads\image-removebg-preview (1).png')
+        imagen_inferior_izquierda = tk.PhotoImage(file=r"C:\Users\fabia\Downloads\Logo Repartidor.png")
         label_inferior_izquierda = tk.Label(self, image=imagen_inferior_izquierda, bg="lightsteelblue4")
         label_inferior_izquierda.image = imagen_inferior_izquierda  # Referencia para evitar que la imagen sea eliminada por el recolector de basura
         label_inferior_izquierda.place(relx=0, rely=1, anchor="sw")  # Utiliza relx y rely para posicionar en relación al tamaño de la ventana
 
         # Imagen en la parte media izquierda
-        imagen_izquierda = tk.PhotoImage(file=r'C:\Users\fabia\Pictures\Screenshots\Captura de pantalla 2023-11-15 125953.png')
+        imagen_izquierda = tk.PhotoImage(file=r'C:\Users\fabia\Pictures\Screenshots\Mapa.png')
         label_izquierda = tk.Label(self, image=imagen_izquierda, bg="lightsteelblue4")
         label_izquierda.image = imagen_izquierda
         label_izquierda.place(x=130, rely=0.5, anchor="w")  # Coloca en el lado izquierdo de la ventana
@@ -71,8 +71,23 @@ class VentanaPrincipal(tk.Tk):
         if nombre == '' or peso == '' or codigo_postal == '':
             messagebox.showwarning("Advertencia", "Completa todos los datos")
             return
+        
+        # Validar que el nombre solo contiene letras y espacios
+        if not nombre.replace(' ', '').isalpha():
+            messagebox.showwarning("Advertencia", "El nombre solo puede contener letras y espacios")
+            return
 
-# Imprimir número de paquete
+        # Validar que el peso solo contienen números
+        if not peso.isdigit():
+            messagebox.showwarning("Advertencia", "El peso debe contener solo números")
+            return
+        
+        # Validar que el código postal solo contienen números
+        if not codigo_postal.isdigit():
+            messagebox.showwarning("Advertencia", "El código postal debe contener solo números")
+            return
+
+        # Imprimir número de paquete
         print(f"-----Paquete {self.numero_paquete}-----")
         self.numero_paquete += 1  # Incrementar el contador
 
