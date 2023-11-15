@@ -35,7 +35,7 @@ def create_data_model():
       [662, 1210, 754, 1358, 1244, 708, 480, 856, 514, 468, 354, 844, 730, 536, 194, 798, 0],
     ]
     #Creación de los vehículos
-    data["num_vehicles"] = 4
+    data["num_vehicles"] = 2
     #Ubicación del deposito (inicio y fin de la ruta) en la posición 0
     data["depot"] = 0
     #Devolución del diccionario
@@ -93,16 +93,43 @@ def draw_graph(distance_matrix):
     #Se agregan los nodos al grafo. Se utilizan los índices del rango de nodos (0 a num_nodes - 1) como etiquetas para los nodos
     G.add_nodes_from(range(num_nodes))
 
+    #Definición de las coordenadas de los nodos 
+    node_positions = {
+        0: (8.5, 9.5),
+        1: (13, 6),
+        2: (9, 0),
+        3: (1, 13),
+        4: (1, 1),
+        5: (10.5, 4),
+        6: (10.5, 17.5),
+        7: (16, 8),
+        8: (14, 16),
+        9: (3, 17.5),
+        10: (7.5, 4),
+        11: (5, 5),
+        12: (13, 13),
+        13: (3, 1.5),
+        14: (7, 14),
+        15: (3.5, 8),
+        16: (15.5, 0),
+    }
+
+    #Adición las coordenadas de los nodos al grafo
+    nx.set_node_attributes(G, node_positions, "pos")
+
     #Bucle anidado para agregar aristas y sus respectivas distancias
     #Bucle que itera en cada nodo del grafo
     for i in range(num_nodes):
         #Bucle encargado de ierar sobre los nodos restantes para evitar duplicar la creación de aristas
         for j in range(i+1, num_nodes):
-            #Adición de las aristas entre los nodos "i" y "j" con su respectiva distancia utilizando la matriz de distancias
-            G.add_edge(i, j, weight=distance_matrix[i][j])
+            #Verificación si la distancia es distinta de cero la dibuja
+            if distance_matrix[i][j] != 0: 
+                #Adición de las aristas entre los nodos "i" y "j" con su respectiva distancia utilizando la matriz de distancias
+                G.add_edge(i, j, weight=distance_matrix[i][j])
     
-    #Calculo de las posiciones de los nodos en el gráfico (spring_layout coloca los nodos de manera que los enlaces con distancias cortas sean tratados como fuerzas de resorte)
-    pos = nx.spring_layout(G)
+    #Obtención de las posiciones de los nodos del atributo 'pos'
+    pos = nx.get_node_attributes(G, "pos")
+
     #Obtención de los atributos de las aristas del grafo (weight)
     labels = nx.get_edge_attributes(G, 'weight')
 
