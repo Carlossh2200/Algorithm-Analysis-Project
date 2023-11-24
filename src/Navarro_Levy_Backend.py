@@ -38,16 +38,18 @@ def create_data_model():
     data["num_vehicles"] = 2
     #Ubicación del deposito (inicio y fin de la ruta) en la posición 0
     data["depot"] = 0
+    #Matriz de demandas asociadas a cada nodo
+    data["demands"] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+     #Creación de los vehículos con su capacidad respectiva
+    data["vehicle_capacities"] = [15, 20]
     #Devolución del diccionario
     return data
 
 """
 ----------------------------------------------------IMPRESIÓN DE LA SOLUCIÓN EN LA CONSOLA----------------------------------------------------
 """
-def print_solution(data, manager, routing, solution):
-    #Impresión del valor de la solución, es decir, la distancia recorrida por todos los vehículos
-    print(f"Sumatoria de las rutas: {solution.ObjectiveValue()}")
-    #Inicialización de la variable que hace un seguimiento de la distancia máxima de las rutas de los vehículos
+def print_solution(data, manager, routing, solution, original_packages, routes_info):
+    #Se inicializa la distancia máxima
     max_route_distance = 0
     #Ciclo for que itera sobre cada vehículo
     for vehicle_id in range(data["num_vehicles"]):
@@ -57,28 +59,49 @@ def print_solution(data, manager, routing, solution):
         plan_output = f"Ruta del vehículo {vehicle_id}:\n"
         #Se inicializa la disntancia recorrida
         route_distance = 0
-        #Bucle while para recorrer todos los nodos de la ruta hasta llegar al final
-        while not routing.IsEnd(index):
-            #Agrega el nodo actual a la cadena de salida
-            plan_output += f" {manager.IndexToNode(index)} -> "
-            #Se almacena el índice actual como el índice anterior para calcular la distancia del arco en la siguiente iteración
-            previous_index = index
-            #Obtención del siguiente índice en la ruta
-            index = solution.Value(routing.NextVar(index))
-            #Se agrega el costo del costo del arco actual a la distancia total de la ruta del vehículo
-            route_distance += routing.GetArcCostForVehicle(
-                previous_index, index, vehicle_id
-            )
-        #Adición del nodo final de la ruta a la cadena de salida
-        plan_output += f"{manager.IndexToNode(index)}\n"
-        #Adición de la distancia total de la ruta del vehículo a la cadena de salida
+        #Lista para almacenar los paquetes llevados por este vehículo
+        packages_carried = []  
+
+        #Verificar si hay información adicional sobre la ruta del vehículo actual
+        if vehicle_id in routes_info:
+            route = routes_info[vehicle_id]
+            for node_index in route:
+                plan_output += f" {node_index} -> "
+                route_distance += routing.GetArcCostForVehicle(
+                    index, manager.NodeToIndex(node_index), vehicle_id
+                )
+                
+                # Si el nodo tiene un paquete asignado, se agrega a la lista de paquetes llevados
+                if node_index in original_packages:
+                    packages_carried.append((node_index, original_packages[node_index]))
+
+                index = manager.NodeToIndex(node_index)
+        else:
+            while not routing.IsEnd(index):
+                node_index = manager.IndexToNode(index)
+                plan_output += f" {node_index} -> "
+                previous_index = index
+                index = solution.Value(routing.NextVar(index))
+                route_distance += routing.GetArcCostForVehicle(previous_index, index, vehicle_id)
+
+                # Si el nodo tiene un paquete asignado, se agrega a la lista de paquetes llevados
+                if node_index in packages:
+                    packages_carried.append((node_index, packages[node_index]))
+
+            node_index = manager.IndexToNode(index)
+            plan_output += f"{node_index}\n"
+
         plan_output += f"Distancia de la ruta: {route_distance}m\n"
-        #Impresión de la información de la ruta del vehículo en le consola
+        
+        # Imprime los paquetes llevados por este vehículo
+        if packages_carried:
+            plan_output += "Paquetes llevados:\n"
+            for package, demand in packages_carried:
+                plan_output += f"  Paquete {package} - Demanda: {demand}\n"
+
         print(plan_output)
-        #Actualización de la distancia máxima de las rutas de los vehículos
         max_route_distance = max(route_distance, max_route_distance)
-    #Imprime la distancia máxima de todas las rutas de los vehículos al final
-    print(f"Distancia máxima recorrida en ruta: {max_route_distance}m")
+
 
 """
 ----------------------------------------------------FUNCIÓN ENCARGADA DEL DIBUJADO DEL GRAFO----------------------------------------------------
@@ -143,9 +166,16 @@ def draw_graph(distance_matrix):
 """
 ---------------------------------------------------------------FUNCIÓN PRINCIPAL---------------------------------------------------------------
 """
-def main():
+def main(packages):
+    # Crear una lista de espera para paquetes que no pueden asignarse debido a restricciones de capacidad
+    waiting_packages = {}
+
     #Creación de la instancia para recibir el diccionario
     data = create_data_model()
+
+    #Modificación de la matriz de demandas según los paquetes ingresados por el usuario
+    for node, demand in packages.items():
+        data["demands"][node] = demand
 
     #Creación de un índice de gestión de rutas
     manager = pywrapcp.RoutingIndexManager(
@@ -157,14 +187,28 @@ def main():
 
     #Función dedicada a tomar dos indices y devolver la distancia que los separa
     def distance_callback(from_index, to_index):
-        """Returns the distance between the two nodes."""
-        # Convert from routing variable Index to distance matrix NodeIndex.
+        #Retorna la distancia entre dos nodos
         from_node = manager.IndexToNode(from_index)
         to_node = manager.IndexToNode(to_index)
         return data["distance_matrix"][from_node][to_node]
 
     #Se registra la función de devolución de llamada como un callback de tránsito en el modelo de enrutamiento
     transit_callback_index = routing.RegisterTransitCallback(distance_callback)
+
+    #Definir una función que se utilizará como callback para las capacidades de los vehículos
+    def demand_callback(from_index):
+        from_node = manager.IndexToNode(from_index)
+        return data["demands"][from_node]
+    
+    # Registrar el callback de demanda como una restricción de capacidad en el modelo de enrutamiento
+    demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
+    routing.AddDimensionWithVehicleCapacity(
+    demand_callback_index,
+    0,  # No se inicia la capacidad en cada nodo, se maneja acumulativamente
+    data["vehicle_capacities"],  # Capacidades de los vehículos
+    True,  # True para tener en cuenta la capacidad restante
+    "Capacity"
+    )
 
     #Se define el costo de cada arco (ruta entre dos nodos), utilizando el callback de tránsito
     routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
@@ -190,15 +234,49 @@ def main():
     search_parameters.first_solution_strategy = (
         routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
     )
-
     #Resolución del problema de enrutamiento utilizando los parámetros de búsqueda configurados y se obtiene la solución
-    solution = routing.SolveWithParameters(search_parameters)
+    solution = routing.SolveWithParameters(search_parameters) #Justo aquí se traba el programa
 
     #Verificación si se encontró solución
-
     #De ser encontrada, se imprime la solución
     if solution:
-        print_solution(data, manager, routing, solution)
+        # Copia de seguridad de los paquetes originales
+        original_packages = packages.copy()
+        # Recopilar información sobre la solución actual
+        routes_info = {}
+        for vehicle_id in range(data["num_vehicles"]):
+            index = routing.Start(vehicle_id)
+            route = []
+            last_package_node = -1  # Nodo del último paquete entregado por el vehículo
+            while not routing.IsEnd(index):
+                node_index = manager.IndexToNode(index)
+                route.append(node_index)
+                index = solution.Value(routing.NextVar(index))
+
+                # Verificar si el nodo tiene un paquete asignado
+                if node_index in packages:
+                    last_package_node = node_index  # Actualizar el nodo del último paquete entregado
+
+            route.append(manager.IndexToNode(index))
+            routes_info[vehicle_id] = route
+
+            # Obtener los paquetes llevados por cada vehículo
+            packages_carried = []
+            for node_index in route:
+                if node_index in packages:
+                    packages_carried.append((node_index, packages[node_index]))
+
+            # Actualizar la información de los paquetes y capacidades de los vehículos
+            for node_index, demand in packages_carried:
+                del packages[node_index]
+
+            # Verificar si el vehículo entregó algún paquete y actualizar la ruta
+            if last_package_node != -1:
+                # Construir la ruta solo hasta el último paquete entregado
+                route = route[:route.index(last_package_node) + 1]
+                routes_info[vehicle_id] = route
+
+        print_solution(data, manager, routing, solution, original_packages, routes_info)
     #De no ser así, se imprime que no se encontró una solución
     else:
         print("No se encontró una solución")
@@ -209,8 +287,10 @@ def main():
 """
 
 if __name__ == "__main__":
+    #Paquetes con sus respectivas demandas para cada nodo
+    packages = {5: 6, 2: 8, 10: 1, 16: 5, 7: 4, 14: 4, 9: 2}  
     #Invocación de la función que encuentra e imprime la solución
-    main()
+    main(packages)
     #Declaración de la variable que recibe el diccionario de datos que contiene los vehículos, los nodos y el depósito
     data = create_data_model()
     #Guarda en la variable distance_matrix el elemento de las distancias de la matriz contenida en el diccionario previamente recibido
