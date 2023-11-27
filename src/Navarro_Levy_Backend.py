@@ -5,6 +5,7 @@ from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 import networkx as nx
 import matplotlib.pyplot as plt
+import time
 
 """
 ---------------------------CREACIÓN DE DATOS DE ENTRADA (VEHÍCULOS, DISNTANCIAS ENTRE NODOS Y UBICACIÓN DEL DEPOSITO)---------------------------
@@ -41,7 +42,7 @@ def create_data_model():
     #Matriz de demandas asociadas a cada nodo
     data["demands"] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
      #Creación de los vehículos con su capacidad respectiva
-    data["vehicle_capacities"] = [15, 20]
+    data["vehicle_capacities"] = [12, 17]
     #Devolución del diccionario
     return data
 
@@ -167,15 +168,8 @@ def draw_graph(distance_matrix):
 ---------------------------------------------------------------FUNCIÓN PRINCIPAL---------------------------------------------------------------
 """
 def main(packages):
-    # Crear una lista de espera para paquetes que no pueden asignarse debido a restricciones de capacidad
-    waiting_packages = {}
-
     #Creación de la instancia para recibir el diccionario
     data = create_data_model()
-
-    #Modificación de la matriz de demandas según los paquetes ingresados por el usuario
-    for node, demand in packages.items():
-        data["demands"][node] = demand
 
     #Creación de un índice de gestión de rutas
     manager = pywrapcp.RoutingIndexManager(
@@ -185,101 +179,244 @@ def main(packages):
     #Se crea un modelo de enrutamiento y se asocia con el índice de gestión de rutas creado arriba
     routing = pywrapcp.RoutingModel(manager)
 
-    #Función dedicada a tomar dos indices y devolver la distancia que los separa
-    def distance_callback(from_index, to_index):
-        #Retorna la distancia entre dos nodos
-        from_node = manager.IndexToNode(from_index)
-        to_node = manager.IndexToNode(to_index)
-        return data["distance_matrix"][from_node][to_node]
+    #Suma de las demandas
+    total_demand = sum(packages.values())
+    #Suma de la capacidad de los vehículos
+    total_capacity = sum(data["vehicle_capacities"])
 
-    #Se registra la función de devolución de llamada como un callback de tránsito en el modelo de enrutamiento
-    transit_callback_index = routing.RegisterTransitCallback(distance_callback)
+    # Verificar si la demanda total supera la capacidad inicial de los vehículos
+    if total_demand > total_capacity:
+        print("La capacidad inicial de los vehículos es insuficiente para cargar todos los paquetes. Los paquetes se dividirán en varios viajes.")
 
-    #Definir una función que se utilizará como callback para las capacidades de los vehículos
-    def demand_callback(from_index):
-        from_node = manager.IndexToNode(from_index)
-        return data["demands"][from_node]
-    
-    # Registrar el callback de demanda como una restricción de capacidad en el modelo de enrutamiento
-    demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
-    routing.AddDimensionWithVehicleCapacity(
-    demand_callback_index,
-    0,  # No se inicia la capacidad en cada nodo, se maneja acumulativamente
-    data["vehicle_capacities"],  # Capacidades de los vehículos
-    True,  # True para tener en cuenta la capacidad restante
-    "Capacity"
-    )
+        # Ordenar los paquetes por demanda de menor a mayor
+        sorted_packages = dict(sorted(packages.items(), key=lambda item: item[1]))
 
-    #Se define el costo de cada arco (ruta entre dos nodos), utilizando el callback de tránsito
-    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+        #Inicializar variables para separar los paquetes en packages y waiting_packages
+        current_capacity = data["vehicle_capacities"][0]  # Capacidad del primer vehículo
+        packages = {}
+        waiting_packages = {}
 
-    dimension_name = "Distance"
+        # Separar los paquetes en packages y waiting_packages según la capacidad de los vehículos
+        for node, demand in sorted_packages.items():
+            if current_capacity >= demand:
+                packages[node] = demand
+                current_capacity -= demand
+            else:
+                waiting_packages[node] = demand
 
-    #Se agrega una dimensión al modelo para representar la distancia total recorrida en cada ruta (estableciendo un limite superior de 3000 unidades de distancia y se inicia la acumulación desde 0)
-    routing.AddDimension(
-        transit_callback_index,
-        0,  
-        3000,  
-        True,  
-        dimension_name,
-    )
-    distance_dimension = routing.GetDimensionOrDie(dimension_name)
+        print("Paquetes a llevar: ",packages)
+        print("Paquetes en espera: ",waiting_packages)
 
-    #Se establece un coeficiente de costo global para la dimensión de distancia (este coeficiente influye en la prioridad de minimizar la distancia total en comparación con otros objetivos)
-    distance_dimension.SetGlobalSpanCostCoefficient(100)
+        #Modificación de la matriz de demandas según los paquetes ingresados por el usuario
+        for node, demand in packages.items():
+            data["demands"][node] = demand
 
-    #Se configuran los parámetros de búsqueda predeterminados para el modelo de enrutamiento
-    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-    #Elección de la estrategia de búsqueda de la primera solución (en este caso la estrategia es seleccionar la ruta más barata debido a la función "PATH_CEHAPEST_ARC")
-    search_parameters.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
-    )
-    #Resolución del problema de enrutamiento utilizando los parámetros de búsqueda configurados y se obtiene la solución
-    solution = routing.SolveWithParameters(search_parameters) #Justo aquí se traba el programa
+        #Función dedicada a tomar dos indices y devolver la distancia que los separa
+        def distance_callback(from_index, to_index):
+            #Retorna la distancia entre dos nodos
+            from_node = manager.IndexToNode(from_index)
+            to_node = manager.IndexToNode(to_index)
+            return data["distance_matrix"][from_node][to_node]
 
-    #Verificación si se encontró solución
-    #De ser encontrada, se imprime la solución
-    if solution:
-        # Copia de seguridad de los paquetes originales
-        original_packages = packages.copy()
-        # Recopilar información sobre la solución actual
-        routes_info = {}
-        for vehicle_id in range(data["num_vehicles"]):
-            index = routing.Start(vehicle_id)
-            route = []
-            last_package_node = -1  # Nodo del último paquete entregado por el vehículo
-            while not routing.IsEnd(index):
-                node_index = manager.IndexToNode(index)
-                route.append(node_index)
-                index = solution.Value(routing.NextVar(index))
+        #Se registra la función de devolución de llamada como un callback de tránsito en el modelo de enrutamiento
+        transit_callback_index = routing.RegisterTransitCallback(distance_callback)
 
-                # Verificar si el nodo tiene un paquete asignado
-                if node_index in packages:
-                    last_package_node = node_index  # Actualizar el nodo del último paquete entregado
+        #Definir una función que se utilizará como callback para las capacidades de los vehículos
+        def demand_callback(from_index):
+            from_node = manager.IndexToNode(from_index)
+            return data["demands"][from_node]
+        
+        # Registrar el callback de demanda como una restricción de capacidad en el modelo de enrutamiento
+        demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
+        routing.AddDimensionWithVehicleCapacity(
+        demand_callback_index,
+        0,  # No se inicia la capacidad en cada nodo, se maneja acumulativamente
+        data["vehicle_capacities"],  # Capacidades de los vehículos
+        True,  # True para tener en cuenta la capacidad restante
+        "Capacity"
+        )
+        
+        #Se define el costo de cada arco (ruta entre dos nodos), utilizando el callback de tránsito
+        routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
-            route.append(manager.IndexToNode(index))
-            routes_info[vehicle_id] = route
+        dimension_name = "Distance"
 
-            # Obtener los paquetes llevados por cada vehículo
-            packages_carried = []
-            for node_index in route:
-                if node_index in packages:
-                    packages_carried.append((node_index, packages[node_index]))
+        #Se agrega una dimensión al modelo para representar la distancia total recorrida en cada ruta (estableciendo un limite superior de 3000 unidades de distancia y se inicia la acumulación desde 0)
+        routing.AddDimension(
+            transit_callback_index,
+            0,  
+            3000,  
+            True,  
+            dimension_name,
+        )
+        distance_dimension = routing.GetDimensionOrDie(dimension_name)
 
-            # Actualizar la información de los paquetes y capacidades de los vehículos
-            for node_index, demand in packages_carried:
-                del packages[node_index]
+        #Se establece un coeficiente de costo global para la dimensión de distancia (este coeficiente influye en la prioridad de minimizar la distancia total en comparación con otros objetivos)
+        distance_dimension.SetGlobalSpanCostCoefficient(100)
 
-            # Verificar si el vehículo entregó algún paquete y actualizar la ruta
-            if last_package_node != -1:
-                # Construir la ruta solo hasta el último paquete entregado
-                route = route[:route.index(last_package_node) + 1]
+        #Se configuran los parámetros de búsqueda predeterminados para el modelo de enrutamiento
+        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+        #Elección de la estrategia de búsqueda de la primera solución (en este caso la estrategia es seleccionar la ruta más barata debido a la función "PATH_CEHAPEST_ARC")
+        search_parameters.first_solution_strategy = (
+            routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+        )
+
+        #Resolución del problema de enrutamiento utilizando los parámetros de búsqueda configurados y se obtiene la solución
+        solution = routing.SolveWithParameters(search_parameters) 
+
+        #Verificación si se encontró solución
+        #De ser encontrada, se imprime la solución
+        if solution:
+            # Copia de seguridad de los paquetes originales
+            original_packages = packages.copy()
+            # Recopilar información sobre la solución actual
+            routes_info = {}
+            for vehicle_id in range(data["num_vehicles"]):
+                index = routing.Start(vehicle_id)
+                route = []
+                last_package_node = -1  # Nodo del último paquete entregado por el vehículo
+                while not routing.IsEnd(index):
+                    node_index = manager.IndexToNode(index)
+                    route.append(node_index)
+                    index = solution.Value(routing.NextVar(index))
+
+                    # Verificar si el nodo tiene un paquete asignado
+                    if node_index in packages:
+                        last_package_node = node_index  # Actualizar el nodo del último paquete entregado
+
+                route.append(manager.IndexToNode(index))
                 routes_info[vehicle_id] = route
 
-        print_solution(data, manager, routing, solution, original_packages, routes_info)
-    #De no ser así, se imprime que no se encontró una solución
+                # Obtener los paquetes llevados por cada vehículo
+                packages_carried = []
+                for node_index in route:
+                    if node_index in packages:
+                        packages_carried.append((node_index, packages[node_index]))
+
+                # Actualizar la información de los paquetes y capacidades de los vehículos
+                for node_index, demand in packages_carried:
+                    del packages[node_index]
+
+                # Verificar si el vehículo entregó algún paquete y actualizar la ruta
+                if last_package_node != -1:
+                    # Construir la ruta solo hasta el último paquete entregado
+                    route = route[:route.index(last_package_node) + 1]
+                    routes_info[vehicle_id] = route
+                    route.append(data["depot"])
+
+            print_solution(data, manager, routing, solution, original_packages, routes_info)
+            #Llamada recursiva a la función main con los waiting_packages
+            main(waiting_packages)
+        
+        #De no ser así, se imprime que no se encontró una solución
+        else:
+            # Si el vehículo no entregó ningún paquete, simplemente conservar la ruta actual
+            route = route[:]
+            print("No se encontró una solución")
+    
+    #Si la capacidad de carga de los vehículos no se ve superada por la demanda de los paquetes
     else:
-        print("No se encontró una solución")
+        #Función dedicada a tomar dos indices y devolver la distancia que los separa
+        def distance_callback(from_index, to_index):
+            #Retorna la distancia entre dos nodos
+            from_node = manager.IndexToNode(from_index)
+            to_node = manager.IndexToNode(to_index)
+            return data["distance_matrix"][from_node][to_node]
+
+        #Se registra la función de devolución de llamada como un callback de tránsito en el modelo de enrutamiento
+        transit_callback_index = routing.RegisterTransitCallback(distance_callback)
+
+        #Definir una función que se utilizará como callback para las capacidades de los vehículos
+        def demand_callback(from_index):
+            from_node = manager.IndexToNode(from_index)
+            return data["demands"][from_node]
+        
+        # Registrar el callback de demanda como una restricción de capacidad en el modelo de enrutamiento
+        demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
+        routing.AddDimensionWithVehicleCapacity(
+        demand_callback_index,
+        0,  # No se inicia la capacidad en cada nodo, se maneja acumulativamente
+        data["vehicle_capacities"],  # Capacidades de los vehículos
+        True,  # True para tener en cuenta la capacidad restante
+        "Capacity"
+        )
+
+        #Se define el costo de cada arco (ruta entre dos nodos), utilizando el callback de tránsito
+        routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+
+        dimension_name = "Distance"
+
+        #Se agrega una dimensión al modelo para representar la distancia total recorrida en cada ruta (estableciendo un limite superior de 3000 unidades de distancia y se inicia la acumulación desde 0)
+        routing.AddDimension(
+            transit_callback_index,
+            0,  
+            3000,  
+            True,  
+            dimension_name,
+        )
+        distance_dimension = routing.GetDimensionOrDie(dimension_name)
+
+        #Se establece un coeficiente de costo global para la dimensión de distancia (este coeficiente influye en la prioridad de minimizar la distancia total en comparación con otros objetivos)
+        distance_dimension.SetGlobalSpanCostCoefficient(100)
+
+        #Se configuran los parámetros de búsqueda predeterminados para el modelo de enrutamiento
+        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+        #Elección de la estrategia de búsqueda de la primera solución (en este caso la estrategia es seleccionar la ruta más barata debido a la función "PATH_CEHAPEST_ARC")
+        search_parameters.first_solution_strategy = (
+            routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+        )
+        #Resolución del problema de enrutamiento utilizando los parámetros de búsqueda configurados y se obtiene la solución
+        solution = routing.SolveWithParameters(search_parameters) #Justo aquí se traba el programa
+
+        #Verificación si se encontró solución
+        #De ser encontrada, se imprime la solución
+        if solution:
+            # Copia de seguridad de los paquetes originales
+            original_packages = packages.copy()
+            # Recopilar información sobre la solución actual
+            routes_info = {}
+            for vehicle_id in range(data["num_vehicles"]):
+                index = routing.Start(vehicle_id)
+                route = []
+                last_package_node = -1  # Nodo del último paquete entregado por el vehículo
+                while not routing.IsEnd(index):
+                    node_index = manager.IndexToNode(index)
+                    route.append(node_index)
+                    index = solution.Value(routing.NextVar(index))
+
+                    # Verificar si el nodo tiene un paquete asignado
+                    if node_index in packages:
+                        last_package_node = node_index  # Actualizar el nodo del último paquete entregado
+
+                route.append(manager.IndexToNode(index))
+                routes_info[vehicle_id] = route
+
+                # Obtener los paquetes llevados por cada vehículo
+                packages_carried = []
+                for node_index in route:
+                    if node_index in packages:
+                        packages_carried.append((node_index, packages[node_index]))
+
+                # Actualizar la información de los paquetes y capacidades de los vehículos
+                for node_index, demand in packages_carried:
+                    del packages[node_index]
+
+                # Verificar si el vehículo entregó algún paquete y actualizar la ruta
+                if last_package_node != -1:
+                    # Construir la ruta solo hasta el último paquete entregado
+                    route = route[:route.index(last_package_node) + 1]
+                    routes_info[vehicle_id] = route
+                    route.append(data["depot"])
+
+            print_solution(data, manager, routing, solution, original_packages, routes_info)
+        
+        #De no ser así, se imprime que no se encontró una solución
+        else:
+            # Si el vehículo no entregó ningún paquete, simplemente conservar la ruta actual
+            route = route[:]
+            print("No se encontró una solución")
+
+
 
 
 """
@@ -288,7 +425,7 @@ def main(packages):
 
 if __name__ == "__main__":
     #Paquetes con sus respectivas demandas para cada nodo
-    packages = {5: 6, 2: 8, 10: 1, 16: 5, 7: 4, 14: 4, 9: 2}  
+    packages = {5: 6, 2: 8, 10: 1, 16: 5, 7: 4, 14: 4, 12: 2, 1: 12}  
     #Invocación de la función que encuentra e imprime la solución
     main(packages)
     #Declaración de la variable que recibe el diccionario de datos que contiene los vehículos, los nodos y el depósito
