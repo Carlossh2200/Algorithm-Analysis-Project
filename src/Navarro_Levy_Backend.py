@@ -42,7 +42,7 @@ def create_data_model():
     #Matriz de demandas asociadas a cada nodo
     data["demands"] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
      #Creación de los vehículos con su capacidad respectiva
-    data["vehicle_capacities"] = [12, 17]
+    data["vehicle_capacities"] = [10, 15]
     #Devolución del diccionario
     return data
 
@@ -192,7 +192,7 @@ def main(packages):
         sorted_packages = dict(sorted(packages.items(), key=lambda item: item[1]))
 
         #Inicializar variables para separar los paquetes en packages y waiting_packages
-        current_capacity = data["vehicle_capacities"][0]  # Capacidad del primer vehículo
+        current_capacity = data["vehicle_capacities"][0]+data["vehicle_capacities"][1]  # Capacidad del primer vehículo
         packages = {}
         waiting_packages = {}
 
@@ -425,7 +425,7 @@ def main(packages):
 
 if __name__ == "__main__":
     #Paquetes con sus respectivas demandas para cada nodo
-    packages = {5: 6, 2: 8, 10: 1, 16: 5, 7: 4, 14: 4, 12: 2, 1: 12}  
+    packages = {12: 4, 15: 7, 9: 2, 8: 4, 5: 3}  
     #Invocación de la función que encuentra e imprime la solución
     main(packages)
     #Declaración de la variable que recibe el diccionario de datos que contiene los vehículos, los nodos y el depósito
